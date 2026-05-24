@@ -1,36 +1,107 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Allo Multi-Warehouse Inventory & Reservation System
 
-## Getting Started
+A full-stack Next.js application built to handle real-time inventory tracking across distributed warehouse nodes. The architecture implements high-concurrency reservation locks combined with automated 10-minute expiry management to safely prevent stock overselling during competitive customer checkouts.
 
-First, run the development server:
+## Key Architectural Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+1. Concurrency Control & Anti-Overselling
+To completely eliminate race conditions where multiple shoppers try to pull the last unit of stock simultaneously, the platform bypasses vulnerable "read-then-write" validation. Instead, reservations utilize atomic database-level transactions, enforcing condition checks directly inside the database engine to guarantee stock availability before committing a reservation.
+
+2. Time-Based Reservation Locks
+When a shopper clicks "Proceed to Checkout", a unique reservation token is generated alongside a database timestamp. This temporarily reallocates the item from Available to Held status.
+* Lifecycle Guard: API endpoints calculate hold validity on-the-fly using a strict 10-minute ($600$ seconds) decay limit.
+* Early Release Optimization: Users can explicitly cancel their transaction, executing an immediate database operation that returns the held inventory unit safely back to the global availability pool.
+
+##  Tech Stack
+* Framework: Next.js (App Router, React Client Components)
+* Database Layer: Prisma ORM integrated with a hosted PostgreSQL cloud instance (Neon Cloud)
+* Styling Engine: Tailwind CSS
+
+##  API Reference
+
+### 1. Fetch Real-Time Inventory
+* Endpoint: `GET /api/inventory`
+* Description: Extracts live stock balances across all registered regional warehouse operations.
+* Response Status:`200 OK`
+
+### 2. Request Stock Reservation
+* Endpoint: `POST /api/reserve`
+* Request Payload:
+  ```json
+  {
+    "productId": "string",
+    "warehouseId": "string",
+    "quantity": 1
+  }
+
+
+
+* Response Statuses:
+* `201 Created`: Hold secured successfully; returns a dynamic `reservationId`.
+* `409 Conflict`: Targeted item is out of stock or intercepted by another concurrent actor.
+
+
+
+### 3. Confirm Purchase Transaction
+
+* Endpoint: `POST /api/confirm`
+* Request Payload:
+```json
+{
+  "reservationId": "string"
+}
+
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+* Response Statuses:
+* `200 OK`: Simulated processing complete; inventory unit permanently deducted.
+* `410 Gone`: The 10-minute hold window closed; inventory unit was automatically returned to public availability.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Early Reservation Release
 
-## Learn More
+* Endpoint: `POST /api/release`
+* Request Payload:
+```json
+{
+  "reservationId": "string"
+}
 
-To learn more about Next.js, take a look at the following resources:
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+* Response Status: `200 OK` (Stock hold discarded and returned to the pool).
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Local Developer Setup
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Install Project Dependencies:
+```bash
+npm install
+
+```
+2. Establish Environment Parameters:
+Create a standard `.env` file in your root folder and add your hosted cloud database credentials:
+```env
+DATABASE_URL="postgresql://neondb_owner:YOUR_PASSWORD@YOUR_HOST/neondb?sslmode=require"
+
+```
+3. Deploy Structural Migrations:
+Synchronize your database schema blueprints directly to the hosted cloud layer:
+```bash
+npx prisma db push
+
+```
+4. Execute Core Data Seeding:
+Populate your hosted tables automatically with seed catalog entries and warehouse items:
+```bash
+npx prisma db seed
+
+```
+5. Run the Application:
+```bash
+npm run dev
+
+```
+Open your browser to `http://localhost:3000` to interact with the full live system environment.
